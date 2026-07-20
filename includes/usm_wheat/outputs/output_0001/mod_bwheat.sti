@@ -1,0 +1,22 @@
+ Balance of the STICS simulation b09f41236_2026-02-17                , model culture
+ **************************************************************
+ 1. INPUT DATA
+ *******************
+   Weather file           :                                          climblej
+   Cropping practices file:                                       Ble_tec.xml
+   Plant file             :                                     wheat_plt.xml
+   Cultivar: Talent          variety group = 2
+   Initialisations file   :                                       ble_ini.xml
+   Initial soil values    : solble      
+      Z (cm)      Water (%)   NO3 (kg/ha)    NH4 (kg/ha)
+        15.         3.0           3.1           0.0
+        15.         5.0           2.9           0.0
+        30.        12.0           4.0           0.0
+        30.        12.0           0.0           0.0
+        30.        12.0           0.0           0.0
+
+   Start of simulation   : 17-oct-1994      day 290
+   End of simulation     :  1-dec-1995      day 335   (or 700)
+   Irrigation read 
+   Fertilisation read
+   Method of PET calculation:               Penman reading
