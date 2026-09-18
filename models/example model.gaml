@@ -21,33 +21,41 @@ global {
 	image_file watering_can_img <- image_file("../includes/watering can.png");
 
 	image_file seeds_img <- image_file("../includes/seeds.png");
+	
+	bool DEBUG_MODE <- false;
 
 	init{
+		
+		gama.pref_cast_container_contents <- true; // TODO: this is not needed on all versions of gama, but it is in 2026 alphas. It can be removed safely for previous versions, and should be harmless in following versions.
+		
+		LOG_SERVER_MESSAGES <- DEBUG_MODE;
 		
 		create AgentStics {
 			
 			default_timeout <- 5#s;
 			do connect_to_stics(port: 8081);
 		
-			// for each crop in gama initialize one in stics
+			// for each crop in gama initializes one in stics
 			map answer <- initialize_crop(crop_input_data_maize, length(crops));
-			if answer["type"] != STICS_SUCCESS {
+			if STICS_ERROR in answer.keys {
 				write "Error while trying to initialize a crop: " + answer color:#red;
 				ask world {
 					do die();						
 				}
 			}
-			loop crop over: crops{
-				if answer["type"] = STICS_SUCCESS {
-					crop.stics_id <- int(answer["simulation_ids"][0]);
-				}
-				else {
-					write "Error while trying to initialize a crop: " + answer color:#red;
-					ask world {
-						do die();						
-					}
+			if not (STICS_ERROR in answer.keys){
+				int i <- 0;
+				loop crop over: crops{
+					crop.stics_id <- int(answer["result"][i]);
+					i <- i + 1;
 				}
 			}	
+			else {
+				write "Error while trying to initialize a crop: " + answer color:#red;
+				ask world {
+					do die();						
+				}
+			}
 		}
 		
 		create farmer {
@@ -60,26 +68,26 @@ global {
 		ask AgentStics {
 			// execute one day of simulation for all crops
 			map answer <- execute_day();
-			if answer["type"] = STICS_ERROR {
+			if STICS_ERROR in answer.keys {
 				write "An error happened while trying to execute one simulation day on all simulations: " + to_json(answer) color:#red;
 				do die();
 			}
 			
 			// extract masec
 			answer <- get_variables(["rendementsec", "densitesem", "airg(n)", "anit(n)"]);
-			if answer["type"] = STICS_ERROR {
+			if STICS_ERROR in answer.keys {
 				write "An error happened while trying to execute one simulation day on all simulations: " + to_json(answer) color:#red;
 				do die();
 			}
 			// save yields in the right crop
 
-			loop i from:0 to:length(list(answer["values"]))-1 {
-				crops crop <- crops first_with(each.stics_id = answer["simulation_ids"][i]); // TODO: in real usecase, use a map of id => agent to speed up the retrieval 
-				crop.yields <- float(list<list<float>>(answer["values"])[i][0]);
+			loop i from:0 to:length(list(answer["result"]["values"]))-1 {
+				crops crop <- crops first_with(each.stics_id = answer["result"]["simulation_ids"][i]); // TODO: in real usecase, use a map of id => agent to speed up the retrieval 
+				crop.yields <- float(list<list<float>>(answer["result"]["values"])[i][0]);
 //				write "Planned for today for this crop: " + slice(answer["values"][i], 1,-1);
-				crop.seeds <- float(list<list<float>>(answer["values"])[i][1]);
-				crop.watering <- crop.watering + float(list<list<float>>(answer["values"])[i][2]);
-				crop.fertilizer <- crop.fertilizer + float(list<list<float>>(answer["values"])[i][3]);
+				crop.seeds <- float(list<list<float>>(answer["result"]["values"])[i][1]);
+				crop.watering <- crop.watering + float(list<list<float>>(answer["result"]["values"])[i][2]);
+				crop.fertilizer <- crop.fertilizer + float(list<list<float>>(answer["result"]["values"])[i][3]);
 			}
 				
 			
@@ -103,7 +111,7 @@ species farmer {
 		location <- one_of(crops).location;
 	}
 	
-	reflex do_fermer_things {
+	reflex do_farmer_things {
 		crops current_crop <- first(crops overlapping self);
 		if cycle <= 14 {
 			float qt_semis <- rnd(10.0, 75.0);

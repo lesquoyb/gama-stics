@@ -8,14 +8,24 @@
 
 model AgentStics
 
+
+global {
+
+	string STICS_CONN_SUCCESS <- "ConnectionSuccessful" const:true;
+	string STICS_ERROR <- "error" const:true;
+	
+	bool LOG_SERVER_MESSAGES <- true; // pass to true/false to toggle the printing of all messages received and sent by the agent, useful for debugging
+	
+}
+
 species AgentStics skills:[network]{
 	
 	
-	string STICS_CONN_SUCCESS <- "ConnectionSuccessful" const:true;
-	string STICS_SUCCESS <- "Success" const:true;
-	string STICS_ERROR <- "Error" const:true;
 	
 	float default_timeout <- 20#s;
+	
+	int internal_cmd_count <- 0;
+	
 	
 	unknown server;
 	
@@ -37,8 +47,7 @@ species AgentStics skills:[network]{
 	}
 	
 	/**
-	 * Reads the next message from the mailbox, provided a timeout duration, and returns it 
-	 * in the form of a map.
+	 * Reads the next message from the mailbox, provided a timeout duration, and returns it in the form of a map.
 	 * If the timeout is reached, kills the simulation.
 	 * Use a time out <= 0 to ignore time outs altogether and possibly wait forever.
 	 */
@@ -53,7 +62,9 @@ species AgentStics skills:[network]{
 				do die();
 			}
 		}
-		write m.contents;
+		if LOG_SERVER_MESSAGES {
+			write '[STICS] Received from server: ' + m.contents;			
+		}
 		return from_json(m.contents);
 		
 	}
@@ -72,7 +83,7 @@ species AgentStics skills:[network]{
 		
 		// For the first message we need to read it outside of the read_next_command_answer to initialize the server object
 		message m <- read_next_raw_message(connection_timeout);
-		write m;
+
 		// In case of timeout the message is nil
 		if m.contents = nil {
 			write "[STICS] Didn't receive connection confirmation from server" color:#red;
@@ -113,42 +124,51 @@ species AgentStics skills:[network]{
 	action exec_command(string cmd_name, int crop_id, map params){
 		map mess <- map("command"::cmd_name, "simulation_id"::crop_id) + params;
 		string str_mess <- to_json(mess);
-		write "[STICS] about to send: " + str_mess color:#lightblue;
+		if LOG_SERVER_MESSAGES{
+			write "[STICS] about to send: " + str_mess color:#lightblue;			
+		}
 		do send(contents:str_mess, to:server);
 	}
 	
 	/**
-	 * Send the text of the command to the stics-server and returns the answer message from the server
+	 * Send the text of the command to the stics-server and returns the answer message from the server.
 	 * This is particularly useful when running a fixed command for which the content can be created once at
 	 * the beginning of the simulation then reused every call. This saves serialization/deserialization time
 	 * which can be important for performances.
 	 */
 	map exec_command_and_wait_answer(string cmd_txt, float timeout <- default_timeout){
+		if LOG_SERVER_MESSAGES{
+			write "[STICS] about to send: " + cmd_txt color:#lightblue;			
+		}
 		do send(contents:cmd_txt, to:server);
 		return read_next_command_answer(timeout);
 	}
 	
-	string create_command_string(string methodName, map<string,unknown> parameters <- map()){
-		return '{"jsonrpc": "2.0", "method": "' + methodName + '", "params":' + to_json(parameters) + '}';
+	string create_command_string(string methodName, int id_cmd, map<string,unknown> parameters <- map()){
+		return '{"jsonrpc":"2.0", "method":"' + methodName + '", "params":' + to_json(parameters) + ', "id":'+ id_cmd +'}';
 	}
 	
 	map initialize_crop(string input_path, int nb_simulations <- 1){
-		return exec_command_and_wait_answer(create_command_string("init_simulation",map("input_path"::input_path,"count"::nb_simulations)));
+		internal_cmd_count <- internal_cmd_count + 1;
+		return exec_command_and_wait_answer(create_command_string("init_simulation", internal_cmd_count, map("input_path"::input_path,"count"::nb_simulations)));
 	}
 	
 	map execute_day(){
-		return exec_command_and_wait_answer(create_command_string("execute_all"));
+		internal_cmd_count <- internal_cmd_count + 1;
+		return exec_command_and_wait_answer(create_command_string("execute_all", internal_cmd_count));
 	}
 	
 	/**
 	 * Get the values of a list of variables for all current simulations
 	 */
 	map get_variables(list<string> variables){
-		return exec_command_and_wait_answer(create_command_string("get_variable", map("variable_names"::to_json(variables))));		
+		internal_cmd_count <- internal_cmd_count + 1;
+		return exec_command_and_wait_answer(create_command_string("get_variable", internal_cmd_count, map("variable_names"::(variables))));		
 	}
 	
 	map set_variables(list<int> crop_ids, list<string> variables, list<unknown> values){
-		return exec_command_and_wait_answer(create_command_string("set_variable", map("variable_names"::to_json(variables), "simulation_ids"::to_json(crop_ids), "values"::to_json(values) )));
+		internal_cmd_count <- internal_cmd_count + 1;
+		return exec_command_and_wait_answer(create_command_string("set_variable", internal_cmd_count, map("variable_names"::(variables), "simulation_ids"::(crop_ids), "values"::(values) )));
 	}
 	
 }
