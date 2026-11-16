@@ -1,0 +1,4 @@
+# STICS run outputs
+stics_workspace/
+# soil state handed over between USMs at runtime by usm sequence.gaml
+includes/sequence_plot2/**/recup.tmp
