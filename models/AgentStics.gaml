@@ -13,6 +13,7 @@ global {
 
 	string STICS_CONN_SUCCESS <- "ConnectionSuccessful" const:true;
 	string STICS_ERROR <- "error" const:true;
+	int STICS_NO_DATE <- 9999; // sowing / harvest day never reached: only GAMA decides
 	
 	bool LOG_SERVER_MESSAGES <- true; // pass to true/false to toggle the printing of all messages received and sent by the agent, useful for debugging
 	
@@ -148,9 +149,26 @@ species AgentStics skills:[network]{
 		return '{"jsonrpc":"2.0", "method":"' + methodName + '", "params":' + to_json(parameters) + ', "id":'+ id_cmd +'}';
 	}
 	
-	map initialize_crop(string input_path, int nb_simulations <- 1){
+	/**
+	 * workspace_path: if given, STICS writes its output files in <workspace_path>/outputs/output_<id>/,
+	 * including recup.tmp (soil and crop state at the end of the USM) needed to chain the next USM.
+	 */
+	map initialize_crop(string input_path, int nb_simulations <- 1, string workspace_path <- ""){
 		internal_cmd_count <- internal_cmd_count + 1;
-		return exec_command_and_wait_answer(create_command_string("init_simulation", internal_cmd_count, map("input_path"::input_path,"count"::nb_simulations)));
+		map<string, unknown> params <- map("input_path"::input_path, "count"::nb_simulations);
+		if workspace_path != "" {
+			params["workspace_path"] <- workspace_path;
+		}
+		return exec_command_and_wait_answer(create_command_string("init_simulation", internal_cmd_count, params));
+	}
+
+	/**
+	 * Close simulations. A finished USM must be closed: execute_all runs every open simulation,
+	 * and a simulation past its datefin fails (no weather left).
+	 */
+	map close_simulations(list<int> crop_ids){
+		internal_cmd_count <- internal_cmd_count + 1;
+		return exec_command_and_wait_answer(create_command_string("close_simulations", internal_cmd_count, map("simulation_ids"::crop_ids)));
 	}
 	
 	map execute_day(){
@@ -161,16 +179,67 @@ species AgentStics skills:[network]{
 	/**
 	 * Get the values of a list of variables for all current simulations
 	 */
-	map get_variables(list<string> variables){
+	map get_variables(list<string> variables, list<int> crop_ids <- []){
 		internal_cmd_count <- internal_cmd_count + 1;
-		return exec_command_and_wait_answer(create_command_string("get_variable", internal_cmd_count, map("variable_names"::(variables))));		
+		map<string, unknown> params <- map("variable_names"::(variables));
+		if !empty(crop_ids) {
+			params["simulation_ids"] <- crop_ids;
+		}
+		return exec_command_and_wait_answer(create_command_string("get_variable", internal_cmd_count, params));
 	}
 	
 	map set_variables(list<int> crop_ids, list<string> variables, list<unknown> values){
 		internal_cmd_count <- internal_cmd_count + 1;
 		return exec_command_and_wait_answer(create_command_string("set_variable", internal_cmd_count, map("variable_names"::(variables), "simulation_ids"::(crop_ids), "values"::(values) )));
 	}
-	
+
+	/**
+	 * Get the value of one variable for one simulation
+	 */
+	float get_variable_for(int crop_id, string variable){
+		internal_cmd_count <- internal_cmd_count + 1;
+		map answer <- exec_command_and_wait_answer(create_command_string("get_variable", internal_cmd_count, map("variable_names"::[variable], "simulation_ids"::[crop_id])));
+		if STICS_ERROR in answer.keys {
+			write "[STICS] could not read " + variable + ": " + to_json(answer) color:#red;
+			return 0.0;
+		}
+		return float(list<list>(map(answer["result"])["values"])[0][0]);
+	}
+
+	/**
+	 * Returns true if a set_variables answer reports no error.
+	 * The server answers with a success even when some writes failed (error_count > 0), so this has to be checked.
+	 */
+	bool set_succeeded(map answer){
+		if STICS_ERROR in answer.keys {
+			write "[STICS] set_variable failed: " + to_json(answer) color:#red;
+			return false;
+		}
+		if int(map(answer["result"])["error_count"]) > 0 {
+			write "[STICS] set_variable partly failed: " + to_json(answer) color:#red;
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Sowing and harvest days, as simulation day indexes (1 = first day of the USM = doy datedebut).
+	 * sim_day must be a day not simulated yet, and these must be called after the first execute_day:
+	 * STICS finishes its initialization on the first day and resets them from the tec file.
+	 * STICS_NO_DATE blocks STICS's own sowing / harvest until a real day is set.
+	 */
+	// density in plants/m2; density < 0 keeps the densitesem of the USM tec file
+	bool force_sowing(list<int> crop_ids, int sim_day, float density <- -1.0){
+		if density < 0 {
+			return set_succeeded(set_variables(crop_ids, ["nplt"], [sim_day]));
+		}
+		return set_succeeded(set_variables(crop_ids, ["nplt", "densitesem"], [sim_day, density]));
+	}
+
+	bool force_harvest(list<int> crop_ids, int sim_day){
+		return set_succeeded(set_variables(crop_ids, ["nrecobs"], [sim_day]));
+	}
+
 }
 
 
