@@ -100,7 +100,7 @@ global {
 		if STICS_ERROR in answer.keys {
 			write "[USM] could not initialize " + path_usm + ": " + to_json(answer) color:#red;
 			sim_id <- -1; // stops daily_loop
-			do pause;
+			do pause();
 		} else {
 			do setup_usm(i, int(list(answer["result"])[0]));
 		}
@@ -159,10 +159,10 @@ global {
 		string src <- workspace + "/outputs/output_" + finished + "/recup.tmp";
 		if usm_index + 1 >= length(usm_names) {
 			write "[sequence] done" color:#blue;
-			do pause;
+			do pause();
 		} else if !file_exists(src) {
 			write "[sequence] " + src + " not found: cannot chain the next USM" color:#red;
-			do pause;
+			do pause();
 		} else {
 			string dst <- usm_path(usm_index + 1) + "/recup.tmp";
 			string content <- "";
@@ -181,12 +181,12 @@ global {
 			map answer <- execute_day();
 			if STICS_ERROR in answer.keys {
 				write "An error happened while trying to execute one simulation day: " + to_json(answer) color:#red;
-				ask world { do pause; }
+				ask world { do pause(); }
 			} else {
 				answer <- get_variables(DAILY_VARIABLES, [sim_id]);
 				if STICS_ERROR in answer.keys {
 					write "An error happened while trying to read the variables: " + to_json(answer) color:#red;
-					ask world { do pause; }
+					ask world { do pause(); }
 				} else {
 					list<float> values <- list<list<float>>(answer["result"]["values"])[0];
 					loop k from: 0 to: length(DAILY_VARIABLES) - 1 {
@@ -233,7 +233,7 @@ global {
 		}
 
 		if today >= end_doy {
-			do end_usm; // starts the next USM: its first day is simulated next cycle
+			do end_usm(); // starts the next USM: its first day is simulated next cycle
 		}
 	}
 
@@ -267,7 +267,7 @@ species farmer {
 			if !empty(names) {
 				ask stics {
 					if !set_succeeded(set_variables([sim_id], names, values)) {
-						ask world { do pause; }
+						ask world { do pause(); }
 					}
 				}
 				write "[farmer] set on day 1: " + names + " (tec file sowing / harvest disabled where GAMA decides)" color:#green;
